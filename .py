@@ -1,1 +1,201 @@
+import streamlit as st
+import pandas as pd
+import random
 
+st.set_page_config(page_title="Paulistão Compacto 2025 – Totalmente Interativo", layout="wide")
+st.title("Paulistão Compacto 2025 – Totalmente Interativo")
+
+# 1️⃣ Nomes dos times
+st.subheader("Editar nomes dos 16 times")
+default_teams = [
+    "Água Santa", "Botafogo-SP", "Bragantino", "Corinthians",
+    "Guarani", "Inter de Limeira", "Mirassol", "Noroeste",
+    "Novorizontino", "Palmeiras", "Ponte Preta", "Portuguesa",
+    "Red Bull Bragantino", "Santos", "São Bernardo", "São Paulo"
+]
+teams = []
+for i in range(16):
+    name = st.text_input(f"Time {i+1}", default_teams[i])
+    teams.append(name)
+
+# 2️⃣ Sorteio fase de grupos
+if st.button("Sortear 5 jogos por time (fase de grupos)"):
+    random.seed(42)
+    pairs = [(teams[i], teams[j]) for i in range(16) for j in range(i+1, 16)]
+    random.shuffle(pairs)
+    rounds = [[] for _ in range(5)]
+    team_opponents = {t:set() for t in teams}
+    available_pairs = pairs.copy()
+
+    def can_place(pair, rnd):
+        a, b = pair
+        teams_in_round = {t for match in rounds[rnd] for t in match}
+        if a in teams_in_round or b in teams_in_round:
+            return False
+        if b in team_opponents[a] or a in team_opponents[b]:
+            return False
+        return True
+
+    for rnd in range(5):
+        attempts = 0
+        while len(rounds[rnd]) < 8 and attempts < 20000:
+            attempts += 1
+            if not available_pairs:
+                break
+            pair = None
+            for p in available_pairs:
+                if can_place(p, rnd):
+                    pair = p
+                    break
+            if pair is None:
+                random.shuffle(available_pairs)
+                continue
+            rounds[rnd].append(pair)
+            a,b = pair
+            team_opponents[a].add(b)
+            team_opponents[b].add(a)
+            available_pairs = [pp for pp in available_pairs if set(pp) != set(pair)]
+        if len(rounds[rnd]) < 8:
+            rounds = [[] for _ in range(5)]
+            team_opponents = {t:set() for t in teams}
+            available_pairs = pairs.copy()
+            random.shuffle(available_pairs)
+            rnd = -1
+            continue
+
+    home_count = {t:0 for t in teams}
+    assign_rounds = []
+    for rnd_matches in rounds:
+        rnd_assigned = []
+        for a,b in rnd_matches:
+            if home_count[a] < home_count[b]:
+                home, away = a,b
+            elif home_count[b] < home_count[a]:
+                home, away = b,a
+            else:
+                if random.random() < 0.5:
+                    home, away = a,b
+                else:
+                    home, away = b,a
+            home_count[home] += 1
+            rnd_assigned.append((home, away))
+        assign_rounds.append(rnd_assigned)
+
+    rows = []
+    for r_idx, rnd in enumerate(assign_rounds, start=1):
+        for match in rnd:
+            rows.append({"Rodada": r_idx, "Mandante": match[0], "Visitante": match[1],
+                         "Gols Mandante": 0, "Gols Visitante": 0})
+    df_rounds = pd.DataFrame(rows)
+    st.session_state["fase_grupos"] = df_rounds
+    st.session_state["matches"] = {}
+    st.success("Sorteio concluído! Agora você pode editar os placares da fase de grupos.")
+
+# 3️⃣ Placar fase de grupos
+if "fase_grupos" in st.session_state:
+    st.subheader("Editar Placar da Fase de Grupos")
+    df_rounds = st.session_state["fase_grupos"]
+    edited_df = st.data_editor(df_rounds, num_rows="dynamic")
+    st.session_state["fase_grupos"] = edited_df
+
+    # Cartões para desempate
+    st.subheader("Cartões para critério disciplinar")
+    cards_df = pd.DataFrame({"Time": teams, "Cartões": [0]*16})
+    cards_df = st.data_editor(cards_df, num_rows="fixed")
+    cards_dict = dict(zip(cards_df["Time"], cards_df["Cartões"]))
+
+    # 4️⃣ Classificação oficial
+    points = {t:0 for t in teams}
+    gf = {t:0 for t in teams}
+    ga = {t:0 for t in teams}
+    matches = {}
+
+    for _, row in edited_df.iterrows():
+        h, a = row["Mandante"], row["Visitante"]
+        gh, ga_ = int(row["Gols Mandante"]), int(row["Gols Visitante"])
+        gf[h] += gh
+        gf[a] += ga_
+        ga[h] += ga_
+        ga[a] += gh
+        matches[(h,a)] = (gh, ga_)
+        if gh > ga_:
+            points[h] += 3
+        elif gh < ga_:
+            points[a] += 3
+        else:
+            points[h] += 1
+            points[a] += 1
+
+    classif = []
+    for t in teams:
+        classif.append({"Time": t, "Pontos": points[t], "GP": gf[t], "GC": ga[t],
+                        "SG": gf[t]-ga[t], "Cartões": cards_dict[t]})
+    df_classif = pd.DataFrame(classif)
+
+    def desempate_confronto(t1,t2):
+        if (t1,t2) in matches:
+            gh, ga_ = matches[(t1,t2)]
+        elif (t2,t1) in matches:
+            ga_, gh = matches[(t2,t1)]
+        else:
+            return 0
+        if gh > ga_:
+            return 1
+        elif gh < ga_:
+            return -1
+        return 0
+
+    def ranking(df):
+        df_sorted = df.sort_values(["Pontos","SG","GP"], ascending=[False, False, False]).reset_index(drop=True)
+        i = 0
+        while i < len(df_sorted)-1:
+            t1, t2 = df_sorted.loc[i,"Time"], df_sorted.loc[i+1,"Time"]
+            if df_sorted.loc[i,"Pontos"] == df_sorted.loc[i+1,"Pontos"] and \
+               df_sorted.loc[i,"SG"] == df_sorted.loc[i+1,"SG"] and \
+               df_sorted.loc[i,"GP"] == df_sorted.loc[i+1,"GP"]:
+                res = desempate_confronto(t1,t2)
+                if res == -1:
+                    df_sorted.iloc[[i,i+1]] = df_sorted.iloc[[i+1,i]].values
+                elif res == 0:
+                    if df_sorted.loc[i,"Cartões"] > df_sorted.loc[i+1,"Cartões"]:
+                        df_sorted.iloc[[i,i+1]] = df_sorted.iloc[[i+1,i]].values
+                    elif df_sorted.loc[i,"Cartões"] == df_sorted.loc[i+1,"Cartões"]:
+                        if random.random() < 0.5:
+                            df_sorted.iloc[[i,i+1]] = df_sorted.iloc[[i+1,i]].values
+            i += 1
+        return df_sorted
+
+    df_classif = ranking(df_classif)
+    st.subheader("Classificação Atualizada")
+    st.dataframe(df_classif)
+
+    # 5️⃣ Fase final totalmente interativa
+    st.subheader("Fase Final – Registrar resultados de ida e volta")
+
+    top8 = df_classif.head(8)["Time"].tolist()
+    quartas = [(top8[0], top8[7]), (top8[1], top8[6]), (top8[2], top8[5]), (top8[3], top8[4])]
+
+    # Função para criar dataframe interativo de mata-mata
+    def create_knockout_df(round_name, matches):
+        rows = []
+        for idx, (h,a) in enumerate(matches, start=1):
+            rows.append({
+                "Partida": f"{round_name} {idx}",
+                "Mandante (ida)": h, "Visitante (ida)": a,
+                "Gols Mandante (ida)": 0, "Gols Visitante (ida)": 0,
+                "Mandante (volta)": a, "Visitante (volta)": h,
+                "Gols Mandante (volta)": 0, "Gols Visitante (volta)": 0
+            })
+        return pd.DataFrame(rows)
+
+    # Quartas
+    df_q = create_knockout_df("Q", quartas)
+    edited_q = st.data_editor(df_q, num_rows="dynamic")
+    st.session_state["quartas"] = edited_q
+
+    # Função para calcular vencedores
+    def get_winners(df_knockout):
+        winners = []
+        for _, row in df_knockout.iterrows():
+            ida_h, ida_a = int(row["Gols Mandante (ida)"]), int(row["Gols Visitante (ida)"])
+            volta_h, volta_a = int(row["Gols
