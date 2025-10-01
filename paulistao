@@ -5,7 +5,7 @@ import random
 st.set_page_config(page_title="Paulistão Compacto 2025 – Totalmente Interativo", layout="wide")
 st.title("Paulistão Compacto 2025 – Totalmente Interativo")
 
-# 1️⃣ Nomes dos times
+# 1 Nomes dos times
 st.subheader("Editar nomes dos 16 times")
 default_teams = [
     "Água Santa", "Botafogo-SP", "Bragantino", "Corinthians",
@@ -18,7 +18,7 @@ for i in range(16):
     name = st.text_input(f"Time {i+1}", default_teams[i])
     teams.append(name)
 
-# 2️⃣ Sorteio fase de grupos
+# 2️ Sorteio fase de grupos
 if st.button("Sortear 5 jogos por time (fase de grupos)"):
     random.seed(42)
     pairs = [(teams[i], teams[j]) for i in range(16) for j in range(i+1, 16)]
@@ -91,7 +91,7 @@ if st.button("Sortear 5 jogos por time (fase de grupos)"):
     st.session_state["matches"] = {}
     st.success("Sorteio concluído! Agora você pode editar os placares da fase de grupos.")
 
-# 3️⃣ Placar fase de grupos
+# 3️ Placar fase de grupos
 if "fase_grupos" in st.session_state:
     st.subheader("Editar Placar da Fase de Grupos")
     df_rounds = st.session_state["fase_grupos"]
@@ -104,7 +104,7 @@ if "fase_grupos" in st.session_state:
     cards_df = st.data_editor(cards_df, num_rows="fixed")
     cards_dict = dict(zip(cards_df["Time"], cards_df["Cartões"]))
 
-    # 4️⃣ Classificação oficial
+    # 4️ Classificação oficial
     points = {t:0 for t in teams}
     gf = {t:0 for t in teams}
     ga = {t:0 for t in teams}
@@ -169,7 +169,7 @@ if "fase_grupos" in st.session_state:
     st.subheader("Classificação Atualizada")
     st.dataframe(df_classif)
 
-    # 5️⃣ Fase final totalmente interativa
+    # 5️ Fase final totalmente interativa
     st.subheader("Fase Final – Registrar resultados de ida e volta")
 
     top8 = df_classif.head(8)["Time"].tolist()
